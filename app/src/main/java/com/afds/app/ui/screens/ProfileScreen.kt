@@ -194,7 +194,7 @@ fun ProfileScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Downloads", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 LinearProgressIndicator(
-                                    progress = { dailyLinksUsed.toFloat() / dailyLinksLimit.toFloat() },
+                                    progress = { if (dailyLinksLimit > 0) dailyLinksUsed.toFloat() / dailyLinksLimit.toFloat() else 0f },
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                 )
                                 Text("$dailyLinksUsed / $dailyLinksLimit", style = MaterialTheme.typography.bodySmall)
@@ -202,7 +202,7 @@ fun ProfileScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Channel Sends", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 LinearProgressIndicator(
-                                    progress = { dailySendsUsed.toFloat() / dailySendsLimit.toFloat() },
+                                    progress = { if (dailySendsLimit > 0) dailySendsUsed.toFloat() / dailySendsLimit.toFloat() else 0f },
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                 )
                                 Text("$dailySendsUsed / $dailySendsLimit", style = MaterialTheme.typography.bodySmall)
@@ -354,9 +354,10 @@ fun ProfileScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    if (telegramId != null) {
+                    val currentTelegramId = telegramId
+                    if (currentTelegramId != null) {
                         Text("Current Telegram ID", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(telegramId!!, style = MaterialTheme.typography.bodyLarge)
+                        Text(currentTelegramId, style = MaterialTheme.typography.bodyLarge)
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
                             value = telegramInput,

@@ -7,6 +7,7 @@ import kotlin.math.pow
 
 fun formatBytes(bytes: Long?, decimals: Int = 2): String {
     if (bytes == null || bytes == 0L) return "0 Bytes"
+    if (bytes < 0L) return "Unknown"
     val k = 1024.0
     val sizes = arrayOf("Bytes", "KB", "MB", "GB", "TB")
     val i = floor(log10(bytes.toDouble()) / log10(k)).toInt()

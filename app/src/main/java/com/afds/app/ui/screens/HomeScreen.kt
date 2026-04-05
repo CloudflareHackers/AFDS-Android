@@ -112,8 +112,6 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
             Spacer(modifier = Modifier.height(32.dp))
 
             // Logo

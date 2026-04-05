@@ -98,9 +98,9 @@ fun GoogleLoginScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    if (errorMessage != null) {
+                    errorMessage?.let { msg ->
                         Text(
-                            text = errorMessage!!,
+                            text = msg,
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium
                         )
