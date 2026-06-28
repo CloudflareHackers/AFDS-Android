@@ -111,6 +111,23 @@ data class AuthResponse(
 )
 
 @Serializable
+data class PasskeyInfo(
+    val id: Int,
+    val device_name: String? = null,
+    val created_at: String? = null,
+    val last_used_at: String? = null
+)
+
+@Serializable
+data class PasskeyListResponse(
+    val passkeys: List<PasskeyInfo> = emptyList(),
+    val error: String? = null
+)
+
+// Returned to the UI from passkeyLoginOptions()
+data class PasskeyLoginOptions(val optionsJson: String, val handle: String)
+
+@Serializable
 data class ProfileResponse(
     val id: Int? = null,
     val email: String? = null,

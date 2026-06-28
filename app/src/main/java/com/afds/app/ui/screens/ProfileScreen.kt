@@ -2,6 +2,7 @@ package com.afds.app.ui.screens
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,10 +27,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.credentials.exceptions.CreateCredentialCancellationException
+import androidx.credentials.exceptions.CreateCredentialException
 import com.afds.app.AFDSApplication
 import com.afds.app.data.model.AppUpdateInfo
+import com.afds.app.data.model.PasskeyInfo
 import com.afds.app.data.remote.ApiClient
 import com.afds.app.data.remote.ApiException
+import com.afds.app.data.remote.PasskeyManager
 import com.afds.app.ui.components.AFDSTopBar
 import com.afds.app.util.UpdateManager
 import kotlinx.coroutines.CancellationException
@@ -50,6 +55,8 @@ fun ProfileScreen(
     val scope = rememberCoroutineScope()
     val apiClient = AFDSApplication.instance.apiClient
     val sessionManager = AFDSApplication.instance.sessionManager
+    val passkeyManager = remember { PasskeyManager(context) }
+    val passkeySupported = Build.VERSION.SDK_INT >= 28
 
     // Profile data
     var email by remember { mutableStateOf("Loading...") }
@@ -85,6 +92,24 @@ fun ProfileScreen(
     var channelId by remember { mutableStateOf<String?>(null) }
     var channelInput by remember { mutableStateOf("") }
     var isSettingChannel by remember { mutableStateOf(false) }
+
+    // Passkeys
+    var passkeys by remember { mutableStateOf<List<PasskeyInfo>>(emptyList()) }
+    var isLoadingPasskeys by remember { mutableStateOf(false) }
+    var isAddingPasskey by remember { mutableStateOf(false) }
+    var deletingPasskeyId by remember { mutableStateOf<Int?>(null) }
+
+    val reloadPasskeys: suspend () -> Unit = reload@{
+        if (!passkeySupported) return@reload
+        isLoadingPasskeys = true
+        try {
+            val token = sessionManager.getToken() ?: return@reload
+            passkeys = apiClient.listPasskeys(token)
+        } catch (_: Exception) {
+        } finally {
+            isLoadingPasskeys = false
+        }
+    }
 
     // Preferences
     val nsfwEnabled by sessionManager.nsfwEnabled.collectAsState(initial = false)
@@ -138,6 +163,11 @@ fun ProfileScreen(
         } finally {
             isProfileLoading = false
         }
+    }
+
+    // Load passkeys
+    LaunchedEffect(Unit) {
+        reloadPasskeys()
     }
 
     Scaffold(
@@ -648,6 +678,146 @@ fun ProfileScreen(
                         ) {
                             if (isSettingChannel) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             else Text("Save Channel ID")
+                        }
+                    }
+                }
+            }
+
+            // Passkeys (platform passkeys require API 28+)
+            if (passkeySupported) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Passkeys", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Sign in without a code using your device's screen lock or biometrics.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        when {
+                            isLoadingPasskeys -> {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            }
+                            passkeys.isEmpty() -> {
+                                Text(
+                                    "No passkeys yet.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            else -> {
+                                passkeys.forEach { passkey ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                passkey.device_name ?: "Passkey",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            passkey.created_at?.let {
+                                                Text(
+                                                    "Added: $it",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            passkey.last_used_at?.let {
+                                                Text(
+                                                    "Last used: $it",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        if (deletingPasskeyId == passkey.id) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            IconButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        deletingPasskeyId = passkey.id
+                                                        try {
+                                                            val token = sessionManager.getToken() ?: return@launch
+                                                            apiClient.deletePasskey(token, passkey.id)
+                                                            Toast.makeText(context, "Passkey removed", Toast.LENGTH_SHORT).show()
+                                                            reloadPasskeys()
+                                                        } catch (e: CancellationException) {
+                                                            throw e
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, e.message ?: "Failed to remove passkey", Toast.LENGTH_SHORT).show()
+                                                        } finally {
+                                                            deletingPasskeyId = null
+                                                        }
+                                                    }
+                                                }
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Remove passkey",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider()
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isAddingPasskey = true
+                                    try {
+                                        val token = sessionManager.getToken() ?: return@launch
+                                        val optionsJson = apiClient.passkeyRegisterOptions(token)
+                                        val regResponseJson = passkeyManager.register(optionsJson)
+                                        val deviceName = Build.MODEL ?: "Passkey"
+                                        apiClient.passkeyRegisterVerify(token, regResponseJson, deviceName)
+                                        Toast.makeText(context, "Passkey added!", Toast.LENGTH_SHORT).show()
+                                        reloadPasskeys()
+                                    } catch (e: CreateCredentialCancellationException) {
+                                        // User cancelled the system prompt — stay silent.
+                                    } catch (e: ApiException) {
+                                        Toast.makeText(context, e.message ?: "Failed to add passkey", Toast.LENGTH_SHORT).show()
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: CreateCredentialException) {
+                                        Toast.makeText(context, e.message ?: "Failed to add passkey", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, e.message ?: "Failed to add passkey", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isAddingPasskey = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isAddingPasskey
+                        ) {
+                            if (isAddingPasskey) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Adding…")
+                            } else {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Add a passkey")
+                            }
                         }
                     }
                 }

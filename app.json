@@ -1,6 +1,6 @@
 {
-  "version": "1.0.4",
-  "version_code": 5,
-  "changelog": "Fixed MyFiles, music details, mixed JSON type handling across all categories",
-  "force_update": true
+  "version": "1.0.8",
+  "version_code": 9,
+  "changelog": "Added passkey (fingerprint/screen-lock) sign-in and management; extended login session to 90 days",
+  "force_update": false
 }

@@ -11,3 +11,9 @@ local.properties
 /app/build
 /app/release
 .kotlin/
+
+# Signing keys — never commit
+*.jks
+*.keystore
+*.p12
+*.pfx

@@ -30,8 +30,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.os.Build
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.afds.app.AFDSApplication
 import com.afds.app.R
+import com.afds.app.data.remote.ApiException
+import com.afds.app.data.remote.PasskeyManager
 import com.afds.app.util.normalizeEmail
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -51,6 +57,8 @@ fun LoginScreen(
     val focusManager = LocalFocusManager.current
     val apiClient = AFDSApplication.instance.apiClient
     val sessionManager = AFDSApplication.instance.sessionManager
+    val passkeyManager = remember { PasskeyManager(context) }
+    val passkeySupported = Build.VERSION.SDK_INT >= 28
 
     var email by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
@@ -475,6 +483,61 @@ fun LoginScreen(
                     Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Continue with Google")
+                }
+
+                // Passkey Sign-In (platform passkeys require API 28+)
+                if (passkeySupported) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            focusManager.clearFocus()
+                            errorMessage = null
+                            scope.launch {
+                                isLoading = true
+                                isSlowRequest = false
+                                val slowJob = launch { delay(10_000); isSlowRequest = true }
+                                try {
+                                    // If a valid email is already entered, narrow to that user's passkeys.
+                                    val narrowEmail = email.takeIf { it.contains("@") }?.let { normalizeEmail(it) }
+                                    val opt = apiClient.passkeyLoginOptions(narrowEmail)
+                                    val assertionJson = passkeyManager.authenticate(opt.optionsJson)
+                                    val token = apiClient.passkeyLoginVerify(assertionJson, opt.handle)
+                                    sessionManager.saveToken(token)
+                                    try {
+                                        val profile = apiClient.getProfile(token)
+                                        sessionManager.saveProfileData(profile.email, profile.userId, profile.channelId)
+                                    } catch (_: Exception) { }
+                                    Toast.makeText(context, "Welcome back!", Toast.LENGTH_SHORT).show()
+                                    onLoginSuccess()
+                                } catch (e: GetCredentialCancellationException) {
+                                    // User cancelled the system prompt — stay silent.
+                                } catch (e: NoCredentialException) {
+                                    errorMessage = "No passkey found on this device. Use email or Google to sign in."
+                                } catch (e: ApiException) {
+                                    errorMessage = e.message ?: "Passkey sign-in failed"
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: GetCredentialException) {
+                                    errorMessage = e.message ?: "Passkey sign-in failed"
+                                } catch (e: Exception) {
+                                    errorMessage = e.message ?: "Passkey sign-in failed"
+                                } finally {
+                                    slowJob.cancel()
+                                    isSlowRequest = false
+                                    isLoading = false
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        enabled = !isLoading
+                    ) {
+                        Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sign in with a passkey")
+                    }
                 }
             }
         }

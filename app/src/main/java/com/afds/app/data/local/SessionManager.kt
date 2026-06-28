@@ -24,7 +24,7 @@ class SessionManager(private val context: Context) {
         private val USER_ID = stringPreferencesKey("user_id")
         private val PROFILE_SETUP_COMPLETE = booleanPreferencesKey("profile_setup_complete")
         private val DOWNLOADER_APP = stringPreferencesKey("downloader_app")
-        private const val SESSION_EXPIRY_MS = 28L * 24 * 60 * 60 * 1000 // 28 days
+        private const val SESSION_EXPIRY_MS = 90L * 24 * 60 * 60 * 1000 // 90 days
     }
 
     val authToken: Flow<String?> = context.dataStore.data.map { it[AUTH_TOKEN] }

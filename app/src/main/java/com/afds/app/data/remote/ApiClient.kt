@@ -14,6 +14,10 @@ import io.ktor.serialization.kotlinx.json.*
 import android.util.Log
 import com.afds.app.data.local.CacheManager
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.concurrent.TimeUnit
 
 class ApiClient {
@@ -101,6 +105,99 @@ class ApiClient {
         }
         val error: AuthResponse = response.body()
         throw ApiException(error.error ?: "Google sign-in failed", response.status.value)
+    }
+
+    // ---- Passkeys ----
+
+    // Registration: returns the raw creation-options JSON to hand to Credential Manager.
+    suspend fun passkeyRegisterOptions(token: String): String {
+        val response = client.post("$BASE_URL/auth/passkey/register/options") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("{}")
+        }
+        if (response.status == HttpStatusCode.Unauthorized) throw ApiException("Session expired", 401)
+        if (!response.status.isSuccess()) {
+            val err = runCatching { json.decodeFromString<MessageResponse>(response.bodyAsText()) }.getOrNull()
+            throw ApiException(err?.error ?: "Could not start passkey registration", response.status.value)
+        }
+        return response.bodyAsText()
+    }
+
+    // registrationResponseJson comes from CreatePublicKeyCredentialResponse.registrationResponseJson
+    suspend fun passkeyRegisterVerify(token: String, registrationResponseJson: String, deviceName: String): Boolean {
+        val payload = buildJsonObject {
+            put("attestationResponse", json.parseToJsonElement(registrationResponseJson))
+            put("deviceName", deviceName)
+        }
+        val response = client.post("$BASE_URL/auth/passkey/register/verify") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(payload)
+        }
+        if (response.status == HttpStatusCode.Unauthorized) throw ApiException("Session expired", 401)
+        if (!response.status.isSuccess()) {
+            val err = runCatching { json.decodeFromString<MessageResponse>(response.bodyAsText()) }.getOrNull()
+            throw ApiException(err?.error ?: "Could not register passkey", response.status.value)
+        }
+        return true
+    }
+
+    // Login (no token). Returns options JSON (for Credential Manager) + handle (echo back on verify).
+    suspend fun passkeyLoginOptions(email: String?): PasskeyLoginOptions {
+        val body = buildJsonObject { if (!email.isNullOrBlank()) put("email", email) }
+        val response = client.post("$BASE_URL/auth/passkey/login/options") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        if (!response.status.isSuccess()) {
+            val err = runCatching { json.decodeFromString<MessageResponse>(response.bodyAsText()) }.getOrNull()
+            throw ApiException(err?.error ?: "Could not start passkey sign-in", response.status.value)
+        }
+        val root = json.parseToJsonElement(response.bodyAsText()).jsonObject
+        val optionsJson = root["options"]!!.toString()           // re-serialize the options object to a string
+        val handle = root["handle"]!!.jsonPrimitive.content
+        return PasskeyLoginOptions(optionsJson, handle)
+    }
+
+    // authenticationResponseJson comes from PublicKeyCredential.authenticationResponseJson. Returns JWT.
+    suspend fun passkeyLoginVerify(authenticationResponseJson: String, handle: String): String {
+        val payload = buildJsonObject {
+            put("assertionResponse", json.parseToJsonElement(authenticationResponseJson))
+            put("handle", handle)
+        }
+        val response = client.post("$BASE_URL/auth/passkey/login/verify") {
+            contentType(ContentType.Application.Json)
+            setBody(payload)
+        }
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            val err = runCatching { json.decodeFromString<AuthResponse>(text) }.getOrNull()
+            throw ApiException(err?.error ?: "Passkey sign-in failed", response.status.value)
+        }
+        return json.decodeFromString<AuthResponse>(text).token
+            ?: throw ApiException("No token returned", response.status.value)
+    }
+
+    suspend fun listPasskeys(token: String): List<PasskeyInfo> {
+        val response = client.get("$BASE_URL/auth/passkey/list") {
+            header("Authorization", "Bearer $token")
+        }
+        if (response.status == HttpStatusCode.Unauthorized) throw ApiException("Session expired", 401)
+        if (!response.status.isSuccess()) return emptyList()
+        return json.decodeFromString<PasskeyListResponse>(response.bodyAsText()).passkeys
+    }
+
+    suspend fun deletePasskey(token: String, id: Int): Boolean {
+        val response = client.delete("$BASE_URL/auth/passkey/$id") {
+            header("Authorization", "Bearer $token")
+        }
+        if (response.status == HttpStatusCode.Unauthorized) throw ApiException("Session expired", 401)
+        if (!response.status.isSuccess()) {
+            val err = runCatching { json.decodeFromString<MessageResponse>(response.bodyAsText()) }.getOrNull()
+            throw ApiException(err?.error ?: "Failed to remove passkey", response.status.value)
+        }
+        return true
     }
 
     // ---- Search & Browse ----
